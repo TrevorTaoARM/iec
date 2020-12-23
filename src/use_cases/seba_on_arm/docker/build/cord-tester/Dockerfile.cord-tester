@@ -1,0 +1,43 @@
+##############################################################################
+# Copyright (c) 2019 AT&T, ENEA AB, Nokia and others                         #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License");            #
+# you maynot use this file except in compliance with the License.            #
+#                                                                            #
+# You may obtain a copy of the License at                                    #
+#       http://www.apache.org/licenses/LICENSE-2.0                           #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT  #
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.           #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+##############################################################################
+
+FROM ubuntu:bionic
+ENV DIRPATH /workspace
+WORKDIR $DIRPATH
+
+# Preferred Kubernetes versions 1.13 for IEC Type 2
+ARG KUBE_VERSION=1.13.0-00
+ARG TEST_USER=ubuntu
+
+# Install packages required by cord-tester
+RUN apt update && apt install -y lsb-release openssh-server sudo curl \
+    python-pip virtualenv python3-dev \
+    git libffi-dev libssl-dev libpq-dev
+
+# For now still using old Kubernetes from Xenial to map with IEC version
+RUN echo "deb http://packages.cloud.google.com/apt kubernetes-xenial main" >\
+    /etc/apt/sources.list.d/kubernetes.list
+RUN curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg > key.gpg
+RUN apt-key add key.gpg
+RUN apt update && apt install kubectl=$KUBE_VERSION
+
+RUN pip install virtualenv
+RUN apt-mark hold kubectl && apt autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+RUN groupadd -r $TEST_USER && useradd -m -s /bin/bash -g $TEST_USER \                                                                                                                                            
+    --system -G sudo -p $(openssl passwd -1 $TEST_USER) $TEST_USER                                                                                                                                               
+RUN echo "$TEST_USER\tALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/90-docker-users
+USER $TEST_USER
