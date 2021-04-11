@@ -19,19 +19,31 @@ DEV_NAME=${6:-}
 SCRIPTS_DIR=$(dirname "${BASH_SOURCE[0]}")
 
 install_calico(){
-  # Install the Etcd Database
-  ETCD_YAML=etcd.yaml
 
-  sed -i "s/10.96.232.136/${CLUSTER_IP}/" "${SCRIPTS_DIR}/cni/calico/${ETCD_YAML}"
-  kubectl apply -f "${SCRIPTS_DIR}/cni/calico/${ETCD_YAML}"
+  #If k8s version is greater than 1.15, then uses new Calico install
 
-  # Install the RBAC Roles required for Calico
-  kubectl apply -f "${SCRIPTS_DIR}/cni/calico/rbac.yaml"
+  kube_version=$(kubectl version |grep "Client" | cut -f 5 -d : | cut -f 1 -d ,)
+  echo "Install Calico for K8s version: "$kube_version
+  if [[ $kube_version > "v1.15.0" ]]; then
+    sed -i "s@192.168.0.0/16@${POD_NETWORK_CIDR}@" \
+      "${SCRIPTS_DIR}/cni/calico/k8s-new/calico-multi-arch.yaml"
+    kubectl create -f "${SCRIPTS_DIR}/cni/calico/k8s-new/calico-multi-arch.yaml"
+  else
+    # Install the Etcd Database
+    ETCD_YAML=etcd.yaml
 
-  # Install Calico to system
-  sed -i "s@10.96.232.136@${CLUSTER_IP}@; s@192.168.0.0/16@${POD_NETWORK_CIDR}@" \
-    "${SCRIPTS_DIR}/cni/calico/calico.yaml"
-  kubectl apply -f "${SCRIPTS_DIR}/cni/calico/calico.yaml"
+    sed -i "s/10.96.232.136/${CLUSTER_IP}/" "${SCRIPTS_DIR}/cni/calico/${ETCD_YAML}"
+    kubectl apply -f "${SCRIPTS_DIR}/cni/calico/${ETCD_YAML}"
+
+    # Install the RBAC Roles required for Calico
+    kubectl apply -f "${SCRIPTS_DIR}/cni/calico/rbac.yaml"
+
+    # Install Calico to system
+    sed -i "s@10.96.232.136@${CLUSTER_IP}@; s@192.168.0.0/16@${POD_NETWORK_CIDR}@" \
+      "${SCRIPTS_DIR}/cni/calico/calico.yaml"
+    kubectl apply -f "${SCRIPTS_DIR}/cni/calico/calico.yaml"
+  fi
+
 }
 
 install_flannel(){
@@ -52,21 +64,25 @@ install_contivpp(){
 install_ovn_kubernetes(){
   # Update the ovn-kubernetes yaml files
 
-  net_cidr_repl="{{ net_cidr | default('10.128.0.0/14/23') }}"
-  svc_cidr_repl="{{ svc_cidr | default('172.30.0.0/16') }}"
-  k8s_apiserver_repl="{{ k8s_apiserver.stdout }}"
+  net_cidr_repl="{{ net_cidr }}"
+  svc_cidr_repl="{{ svc_cidr }}"
+  k8s_apiserver_repl="{{ k8s_apiserver }}"
+  mtu_repl="{{ mtu_value }}"
 
   k8s_apiserver="https://${K8S_MASTER_IP}:6443"
   net_cidr="${POD_NETWORK_CIDR}"
   svc_cidr="${SERVICE_CIDR}"
+  mtu_def_value=1400
 
   echo "net_cidr: ${net_cidr}"
   echo "svc_cidr: ${svc_cidr}"
   echo "k8s_apiserver: ${k8s_apiserver}"
+  echo "mtu: ${mtu_def_value}"
 
   sed "s,${net_cidr_repl},${net_cidr},
   s,${svc_cidr_repl},${svc_cidr},
-  s,${k8s_apiserver_repl},${k8s_apiserver}," \
+  s,${k8s_apiserver_repl},${k8s_apiserver},
+  s,${mtu_repl},${mtu_def_value}," \
   ${SCRIPTS_DIR}/cni/ovn-kubernetes/templates/ovn-setup.yaml.j2 > \
   ${SCRIPTS_DIR}/cni/ovn-kubernetes/yaml/ovn-setup.yaml
 
